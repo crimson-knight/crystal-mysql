@@ -1,20 +1,10 @@
-require "openssl/sha1"
-require "openssl/digest"
+require "beryl"
 
-# Reopen Crystal's LibCrypto to add RSA encryption bindings for MySQL auth
-lib LibCrypto
-  fun bio_new_mem_buf = BIO_new_mem_buf(buf : Void*, len : Int32) : Bio*
-  fun pem_read_bio_pubkey = PEM_read_bio_PUBKEY(bio : Bio*, x : Void*, cb : Void*, u : Void*) : Void*
-  fun evp_pkey_free = EVP_PKEY_free(pkey : Void*)
-  fun evp_pkey_ctx_new = EVP_PKEY_CTX_new(pkey : Void*, e : Void*) : Void*
-  fun evp_pkey_ctx_free = EVP_PKEY_CTX_free(ctx : Void*)
-  fun evp_pkey_encrypt_init = EVP_PKEY_encrypt_init(ctx : Void*) : Int32
-  fun evp_pkey_ctx_ctrl = EVP_PKEY_CTX_ctrl(ctx : Void*, keytype : Int32, optype : Int32, cmd : Int32, p1 : Int32, p2 : Void*) : Int32
-  fun evp_pkey_encrypt = EVP_PKEY_encrypt(ctx : Void*, out : UInt8*, outlen : LibC::SizeT*, in_buf : UInt8*, inlen : LibC::SizeT) : Int32
-  fun evp_pkey_ctx_set_rsa_oaep_md = EVP_PKEY_CTX_set_rsa_oaep_md(ctx : Void*, md : EVP_MD) : Int32
-end
-
+# Password hashing and encryption for the MySQL authentication plugins,
+# written on Beryl, so they call no OpenSSL.
 module MySql::Auth
+  private alias SHA1 = Beryl::Crypto::Compatibility::SHA1
+
   def self.compute_auth_response(plugin_name : String, password : String?, scramble : Bytes, ssl_established : Bool = false) : Bytes
     if password.nil? || password.empty?
       return Bytes.empty
@@ -41,16 +31,14 @@ module MySql::Auth
   end
 
   def self.native_password(password : String, scramble : Bytes) : Bytes
-    sizet_20 = LibC::SizeT.new(20)
-    sha1 = OpenSSL::SHA1.hash(password)
-    sha1sha1 = OpenSSL::SHA1.hash(sha1.to_unsafe, sizet_20)
+    sha1 = SHA1.digest(password)
+    sha1sha1 = SHA1.digest(sha1)
 
     buffer = Bytes.new(40)
     buffer[0, 20].copy_from(scramble[0, 20])
-    buffer[20, 20].copy_from(sha1sha1.to_slice)
+    buffer[20, 20].copy_from(sha1sha1)
 
-    sizet_40 = LibC::SizeT.new(40)
-    buffer_sha1 = OpenSSL::SHA1.hash(buffer.to_unsafe, sizet_40)
+    buffer_sha1 = SHA1.digest(buffer)
 
     result = Bytes.new(20)
     20.times { |i| result[i] = sha1[i] ^ buffer_sha1[i] }
@@ -89,68 +77,30 @@ module MySql::Auth
     result
   end
 
-  # Constants from OpenSSL evp.h
-  EVP_PKEY_RSA              = 6
-  EVP_PKEY_OP_ENCRYPT       = 1 << 9
-  EVP_PKEY_CTRL_RSA_PADDING = 0x1001
-  RSA_PKCS1_OAEP_PADDING    =      4
-
+  # Encrypts the password for the server holding the RSA public key in
+  # *pem_key* (a `PUBLIC KEY` block), as caching_sha2_password and
+  # sha256_password do over a connection without TLS: the password, NUL
+  # terminated and XORed with the scramble, under RSAES-OAEP with SHA-1 and
+  # MGF1-SHA-1, which is what the server decrypts with.
   def self.rsa_encrypt_password(password : String, scramble : Bytes, pem_key : String) : Bytes
-    xored = xor_password_scramble(password, scramble)
+    public_key = read_rsa_public_key(pem_key)
+    public_key.encrypt_with_oaep(xor_password_scramble(password, scramble), hash_function: SHA1)
+  rescue error : Beryl::Error
+    raise Connection::PacketError.new("RSA encryption of the password failed: #{error.message}")
+  end
 
-    bio = LibCrypto.bio_new_mem_buf(pem_key.to_unsafe.as(Void*), pem_key.bytesize)
-    raise Connection::PacketError.new("Failed to create BIO for RSA key") if bio.null?
-
-    begin
-      pkey = LibCrypto.pem_read_bio_pubkey(bio, nil, nil, nil)
-      raise Connection::PacketError.new("Failed to parse RSA public key") if pkey.null?
-
-      begin
-        ctx = LibCrypto.evp_pkey_ctx_new(pkey, nil)
-        raise Connection::PacketError.new("Failed to create EVP_PKEY_CTX") if ctx.null?
-
-        begin
-          if LibCrypto.evp_pkey_encrypt_init(ctx) <= 0
-            raise Connection::PacketError.new("EVP_PKEY_encrypt_init failed")
-          end
-
-          # Set RSA OAEP padding
-          if LibCrypto.evp_pkey_ctx_ctrl(ctx, EVP_PKEY_RSA, EVP_PKEY_OP_ENCRYPT, EVP_PKEY_CTRL_RSA_PADDING, RSA_PKCS1_OAEP_PADDING, nil) <= 0
-            raise Connection::PacketError.new("Failed to set RSA OAEP padding")
-          end
-
-          # Set OAEP digest to SHA-1 (MySQL expects SHA-1, OpenSSL 3.x may default to SHA-256)
-          if LibCrypto.evp_pkey_ctx_set_rsa_oaep_md(ctx, LibCrypto.evp_sha1) <= 0
-            raise Connection::PacketError.new("Failed to set OAEP digest to SHA-1")
-          end
-
-          # Determine output size
-          out_len = LibC::SizeT.new(0)
-          if LibCrypto.evp_pkey_encrypt(ctx, nil, pointerof(out_len), xored.to_unsafe, LibC::SizeT.new(xored.size)) <= 0
-            raise Connection::PacketError.new("EVP_PKEY_encrypt size determination failed")
-          end
-
-          # Encrypt
-          encrypted = Bytes.new(out_len.to_i32)
-          if LibCrypto.evp_pkey_encrypt(ctx, encrypted.to_unsafe, pointerof(out_len), xored.to_unsafe, LibC::SizeT.new(xored.size)) <= 0
-            raise Connection::PacketError.new("RSA encryption failed")
-          end
-
-          encrypted[0, out_len.to_i32]
-        ensure
-          LibCrypto.evp_pkey_ctx_free(ctx)
-        end
-      ensure
-        LibCrypto.evp_pkey_free(pkey)
-      end
-    ensure
-      LibCrypto.BIO_free(bio)
+  # Reads the server's RSA public key from its PEM `PUBLIC KEY` block.
+  def self.read_rsa_public_key(pem_key : String) : Beryl::Crypto::V1::RSA::PublicKey
+    der = Beryl::Encoding::PEM.decode(pem_key, label: "PUBLIC KEY").first? ||
+          raise Connection::PacketError.new("the server sent no PUBLIC KEY block")
+    public_key = Beryl::Certificates::SubjectPublicKeyInfo.from_der(der).verification_key
+    unless public_key.is_a?(Beryl::Crypto::V1::RSA::PublicKey)
+      raise Connection::PacketError.new("the server public key is not an RSA key")
     end
+    public_key
   end
 
   private def self.sha256(data : Bytes) : Bytes
-    digest = OpenSSL::Digest.new("SHA256")
-    digest.update(data)
-    digest.final
+    Beryl::Crypto::V1::SHA256.digest(data)
   end
 end

@@ -1,4 +1,5 @@
 require "./spec_helper"
+require "file_utils"
 
 # Reference vectors computed independently using openssl + python XOR.
 # Source inputs are documented per-test; re-derivable as:
@@ -103,6 +104,45 @@ describe MySql::Auth do
       scramble = "12345678901234567890".to_slice
       expect_raises(MySql::Connection::PacketError, /Unsupported auth plugin/) do
         MySql::Auth.compute_auth_response("nonexistent_plugin", "x", scramble)
+      end
+    end
+  end
+
+  describe ".rsa_encrypt_password" do
+    # A 2,048-bit key pair, the size MySQL generates for its own, made for
+    # this run with the openssl command so the repository holds no private
+    # key.
+    key_directory = File.tempname("mysql-rsa-spec")
+    Dir.mkdir(key_directory)
+    private_key_path = File.join(key_directory, "private")
+    public_key_path = File.join(key_directory, "public")
+    Process.run("openssl", ["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", private_key_path])
+    Process.run("openssl", ["pkey", "-in", private_key_path, "-pubout", "-out", public_key_path])
+    public_pem = File.read(public_key_path)
+    private_key = Beryl::Certificates.read_private_key(File.read(private_key_path))
+    FileUtils.rm_rf(key_directory)
+
+    it "encrypts the scrambled password with RSAES-OAEP over SHA-1, which the private key opens" do
+      scramble = "12345678901234567890".to_slice
+      ciphertext = MySql::Auth.rsa_encrypt_password("secret", scramble, public_pem)
+      ciphertext.size.should eq(256)
+      unless private_key.is_a?(Beryl::Crypto::V1::RSA::PrivateKey)
+        fail "the fixture key is not an RSA key"
+      end
+      plaintext = private_key.decrypt_with_oaep(ciphertext, hash_function: Beryl::Crypto::Compatibility::SHA1)
+      plaintext.should eq(MySql::Auth.xor_password_scramble("secret", scramble))
+    end
+
+    it "uses a fresh seed each time" do
+      scramble = "12345678901234567890".to_slice
+      first = MySql::Auth.rsa_encrypt_password("secret", scramble, public_pem)
+      second = MySql::Auth.rsa_encrypt_password("secret", scramble, public_pem)
+      first.should_not eq(second)
+    end
+
+    it "raises a PacketError when the server sends no public key" do
+      expect_raises(MySql::Connection::PacketError, /no PUBLIC KEY block/) do
+        MySql::Auth.rsa_encrypt_password("secret", "12345678901234567890".to_slice, "not a key")
       end
     end
   end

@@ -189,4 +189,36 @@ describe Connection::SSLOptions do
       )
     end
   end
+
+  describe "#tls_hostname" do
+    it "sends and checks the host for every mode but verify_ca" do
+      ssl_from_params("ssl-mode=verify_identity").tls_hostname("db.example.com").should eq("db.example.com")
+      ssl_from_params("ssl-mode=required").tls_hostname("db.example.com").should eq("db.example.com")
+    end
+
+    it "checks the chain only for verify_ca" do
+      ssl_from_params("ssl-mode=verify_ca").tls_hostname("db.example.com").should be_nil
+    end
+  end
+
+  {% unless flag?(:use_openssl) %}
+    describe "#build_context" do
+      it "skips chain verification for preferred and required" do
+        ssl_from_params("ssl-mode=required").build_context.verify_mode.should eq(Beryl::TLS::VerifyMode::None)
+      end
+
+      it "verifies against the CA file given for verify_ca" do
+        ca = File.join(__DIR__, "fixtures", "ca_certificate.pem")
+        context = ssl_from_params("ssl-mode=verify_ca&ssl-ca=#{ca}").build_context
+        context.verify_mode.should eq(Beryl::TLS::VerifyMode::Peer)
+        context.trust_store.list_of_certificates.size.should eq(1)
+      end
+
+      it "refuses client certificates, which Beryl TLS does not send" do
+        expect_raises(Connection::PacketError, /-Duse_openssl/) do
+          ssl_from_params("ssl-mode=required&ssl-cert=client.pem&ssl-key=client.key").build_context
+        end
+      end
+    end
+  {% end %}
 end
