@@ -6,10 +6,10 @@ dependencies:
     github: crystal-lang/crystal-db
     version: ~> 0.14.0
   # TLS 1.3 and the password hashes, in Crystal (no OpenSSL). Pinned to the
-  # commit that has Beryl TLS; shard.lock records it.
+  # commit that has Beryl TLS and reads SSL_CERT_FILE; shard.lock records it.
   beryl:
     github: amberframework/beryl
-    commit: 73aaa205c03781113b525f2bf8f4324aac5ce29c
+    commit: 15e214b8a8b0427da5ca7182501d5652800907cc
 
 authors:
   - Juan Wajnerman <jwajnerman@manas.tech>
