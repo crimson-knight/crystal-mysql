@@ -25,7 +25,8 @@ printf '%s\n' \
   "subjectAltName = DNS:localhost, IP:127.0.0.1" \
   "keyUsage = critical, digitalSignature" \
   "extendedKeyUsage = serverAuth" \
-  "basicConstraints = critical, CA:FALSE" > server.ext
+  "basicConstraints = critical, CA:FALSE" \
+  "authorityKeyIdentifier = keyid" > server.ext
 openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial \
   -days 30 -extfile server.ext -out server.pem 2>/dev/null
 # The server reads its key as the mysql user inside the container.

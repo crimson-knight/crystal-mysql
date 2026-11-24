@@ -54,17 +54,35 @@ module MySql::TLS
       end
 
       context = Context.new
-      if verifies_chain?(options)
-        context.verify_mode = Beryl::TLS::VerifyMode::Peer
-        if ca = options.ca
-          context.ca_certificates = ca.to_s
-        else
-          context.trust_store = Beryl::Certificates::TrustStore.system
-        end
-      else
+      unless verifies_chain?(options)
         context.verify_mode = Beryl::TLS::VerifyMode::None
+        return context
+      end
+
+      ca = options.ca
+      trust_store = ca ? Beryl::Certificates::TrustStore.from_pem(File.read(ca)) : Beryl::Certificates::TrustStore.system
+      if options.mode.verify_ca?
+        # verify_ca checks the chain and not the name, so the handshake runs
+        # with no name to check and this verifier in place of the default.
+        context.verify_mode = Beryl::TLS::VerifyMode::None
+        context.certificate_verifier = ChainOnlyVerifier.new(trust_store)
+      else
+        context.verify_mode = Beryl::TLS::VerifyMode::Peer
+        context.trust_store = trust_store
       end
       context
+    end
+
+    # Verifies the server's chain to *trust_store* (RFC 5280 path
+    # validation, the serverAuth purpose) without checking its name.
+    class ChainOnlyVerifier < Beryl::TLS::CertificateVerifier
+      def initialize(trust_store : Beryl::Certificates::TrustStore)
+        @verifier = Beryl::TLS::WebPkiVerifier.new(trust_store)
+      end
+
+      def verify_chain(chain : Array(Beryl::Certificates::Certificate), hostname : String?) : Nil
+        @verifier.verify_chain(chain, nil)
+      end
     end
 
     # Runs the TLS handshake over *io* and returns the protected socket.

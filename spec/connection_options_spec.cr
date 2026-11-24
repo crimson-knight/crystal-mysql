@@ -210,8 +210,8 @@ describe Connection::SSLOptions do
       it "verifies against the CA file given for verify_ca" do
         ca = File.join(__DIR__, "fixtures", "ca_certificate.pem")
         context = ssl_from_params("ssl-mode=verify_ca&ssl-ca=#{ca}").build_context
-        context.verify_mode.should eq(Beryl::TLS::VerifyMode::Peer)
-        context.trust_store.list_of_certificates.size.should eq(1)
+        context.verify_mode.should eq(Beryl::TLS::VerifyMode::None)
+        context.certificate_verifier.should be_a(MySql::TLS::ChainOnlyVerifier)
       end
 
       it "refuses client certificates, which Beryl TLS does not send" do
