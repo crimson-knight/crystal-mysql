@@ -1,6 +1,6 @@
 require "socket"
-require "openssl"
 require "./auth"
+require "./tls"
 
 class MySql::Connection < DB::Connection
   class PacketError < Exception; end
@@ -30,22 +30,17 @@ class MySql::Connection < DB::Connection
       SSLOptions.new(mode: mode, key: key, cert: cert, ca: ca)
     end
 
-    def build_context : OpenSSL::SSL::Context::Client
-      ctx = OpenSSL::SSL::Context::Client.new
+    # The TLS settings for this mode: the chain is checked for verify_ca and
+    # verify_identity (against *ca* when given, else the system's roots),
+    # and the name only for verify_identity.
+    def build_context : TLS::Context
+      TLS.build_context(self)
+    end
 
-      ctx.verify_mode =
-        case mode
-        when SSLMode::VerifyCA, SSLMode::VerifyIdentity
-          OpenSSL::SSL::VerifyMode::PEER
-        else
-          OpenSSL::SSL::VerifyMode::NONE
-        end
-
-      ctx.certificate_chain = cert.to_s if cert = @cert
-      ctx.private_key = key.to_s if key = @key
-      ctx.ca_certificates = ca.to_s if ca = @ca
-
-      ctx
+    # The name sent in SNI and checked against the certificate. verify_ca
+    # checks the chain only, so it sends no name.
+    def tls_hostname(host : String?) : String?
+      host unless mode.verify_ca?
     end
   end
 
@@ -89,7 +84,7 @@ class MySql::Connection < DB::Connection
 
   def initialize(options : ::DB::Connection::Options, mysql_options : ::MySql::Connection::Options)
     super(options)
-    @socket = uninitialized UNIXSocket | TCPSocket | OpenSSL::SSL::Socket::Client
+    @socket = uninitialized UNIXSocket | TCPSocket | TLS::Socket
 
     begin
       charset_id = Collations.id_for_collation(mysql_options.charset).to_u8
@@ -121,14 +116,14 @@ class MySql::Connection < DB::Connection
           handshake_response.write_ssl_request(packet)
         end
         seq += 1
-        ctx = mysql_options.ssl_options.build_context
-        @socket = OpenSSL::SSL::Socket::Client.new(@socket, context: ctx, sync_close: true, hostname: hostname)
+        ssl_options = mysql_options.ssl_options
+        @socket = TLS.connect(@socket, ssl_options.build_context, ssl_options.tls_hostname(hostname), transport)
         # NOTE: If ssl_options.mode is Preferred we should fallback to non-ssl socket if the ssl setup failed
         # if we do so, we should warn at least. Making Preferred behave as Required is a safer option
         # so the user would need to explicitly choose Disabled to avoid the ssl setup.
       end
 
-      ssl_established = @socket.is_a?(OpenSSL::SSL::Socket::Client)
+      ssl_established = @socket.is_a?(TLS::Socket)
 
       write_packet(seq) do |packet|
         handshake_response.write(packet, ssl_established)

@@ -49,8 +49,9 @@ describe Driver do
 
       # By default, the encoding for the  DB connection is set to utf8_general_ci
       DB.open "mysql://crystal_test:secret@#{database_host}?database=crystal_mysql_test" do |db|
-        db.scalar("SELECT @@collation_connection").should eq("utf8_general_ci")
-        db.scalar("SELECT @@character_set_connection").should eq("utf8")
+        # MySQL 8.0.30 and later report the utf8 alias by its full name, utf8mb3.
+        ["utf8_general_ci", "utf8mb3_general_ci"].should contain(db.scalar("SELECT @@collation_connection"))
+        ["utf8", "utf8mb3"].should contain(db.scalar("SELECT @@character_set_connection"))
       end
       db.exec "DROP DATABASE IF EXISTS crystal_mysql_test"
     end
