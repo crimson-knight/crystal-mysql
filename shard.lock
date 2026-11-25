@@ -2,8 +2,8 @@ version: 2.0
 shards:
   beryl:
     git: https://github.com/amberframework/beryl.git
-    version: 0.2.0+git.commit.ed5f21e7ddc3e30750abdd4c944ee22d16b12d57
-    checksum: sha256-v2:53349001ef9eaceb00a4c6c423456fc819306036af5430b4053ccdd592ec73db
+    version: 0.2.1+git.commit.c51f5d231e699647076c91c2a91a5e4f64fa861c
+    checksum: sha256-v2:348ccb15ed9b242d1934e8d1875ad5fbe1c328b86d515fd053095c56d030924a
 
   db:
     git: https://github.com/crystal-lang/crystal-db.git
