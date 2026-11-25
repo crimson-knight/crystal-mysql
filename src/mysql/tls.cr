@@ -18,10 +18,9 @@ module MySql::TLS
     def self.build_context(options : Connection::SSLOptions) : Context
       context = Context.new
       context.verify_mode = verifies_chain?(options) ? OpenSSL::SSL::VerifyMode::PEER : OpenSSL::SSL::VerifyMode::NONE
-      if cert = options.cert
+      if client_certificate = client_certificate_paths(options)
+        cert, key = client_certificate
         context.certificate_chain = cert.to_s
-      end
-      if key = options.key
         context.private_key = key.to_s
       end
       if ca = options.ca
@@ -47,13 +46,8 @@ module MySql::TLS
     ]
 
     def self.build_context(options : Connection::SSLOptions) : Context
-      if options.cert || options.key
-        raise Connection::PacketError.new(
-          "ssl-cert and ssl-key (client certificates) are not supported by Beryl TLS; " \
-          "build with -Duse_openssl to use them")
-      end
-
       context = Context.new
+      load_client_certificate(context, options)
       unless verifies_chain?(options)
         context.verify_mode = Beryl::TLS::VerifyMode::None
         return context
@@ -71,6 +65,23 @@ module MySql::TLS
         context.trust_store = trust_store
       end
       context
+    end
+
+    # Sets the certificate chain and key the client presents when the server
+    # asks for one (a MySQL account created with REQUIRE X509, SUBJECT or
+    # ISSUER). Applies in every ssl-mode, since the server asks for it
+    # whatever the client checks.
+    private def self.load_client_certificate(context : Context, options : Connection::SSLOptions) : Nil
+      client_certificate = client_certificate_paths(options)
+      return unless client_certificate
+
+      cert, key = client_certificate
+      begin
+        context.certificate_chain = cert.to_s
+        context.private_key = key.to_s
+      rescue error : File::Error | Beryl::Error
+        raise Connection::PacketError.new("could not load the client certificate (ssl-cert=#{cert}, ssl-key=#{key}): #{error.message}")
+      end
     end
 
     # Verifies the server's chain to *trust_store* (RFC 5280 path
@@ -102,6 +113,20 @@ module MySql::TLS
       raise Connection::PacketError.new("the TLS handshake with the MySQL server at #{transport.host}:#{transport.port} failed: #{error.message}")
     end
   {% end %}
+
+  # The client certificate and key paths, or nil when neither is given.
+  # Raises `Connection::PacketError` naming the missing one when only one is.
+  private def self.client_certificate_paths(options : Connection::SSLOptions) : {Path, Path}?
+    cert = options.cert
+    key = options.key
+    if cert && key
+      {cert, key}
+    elsif cert
+      raise Connection::PacketError.new("ssl-cert was given without ssl-key; a client certificate needs both (add ssl-key=<path to the client key>)")
+    elsif key
+      raise Connection::PacketError.new("ssl-key was given without ssl-cert; a client certificate needs both (add ssl-cert=<path to the client certificate>)")
+    end
+  end
 
   private def self.verifies_chain?(options : Connection::SSLOptions) : Bool
     options.mode.verify_ca? || options.mode.verify_identity?

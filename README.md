@@ -115,9 +115,17 @@ By default a tcp connection will establish a secure connection, whether a unix s
 You can tweak this default behaviour and require further validation of certificates using `ssl-mode` and the following query strings.
 
 - `ssl-mode`: Either `disabled`, `preferred` (default), `required`, `verify_ca`, `verify_identity`.
-- `ssl-key`: Path to the client key.
-- `ssl-cert`: Path to the client certificate.
+- `ssl-key`: Path to the client key (PEM: PKCS #8, SEC 1 or PKCS #1).
+- `ssl-cert`: Path to the client certificate (PEM, leaf first, then any intermediates).
 - `ssl-ca`: Path to the CA certificate.
+
+`ssl-cert` and `ssl-key` go together: the client presents them when the server
+asks for a certificate, which an account created with `REQUIRE X509`,
+`REQUIRE SUBJECT` or `REQUIRE ISSUER` needs. For example:
+
+```
+mysql://x509user@db.example.com:3306/mydb?ssl-mode=verify_identity&ssl-ca=/etc/mysql/ca.pem&ssl-cert=/etc/mysql/client.pem&ssl-key=/etc/mysql/client.key
+```
 
 #### Other query params
 
