@@ -1,3 +1,12 @@
+## v0.18.2 (2026-11-25, crimson-knight/crystal-mysql pr-123)
+
+* Client certificates (mutual TLS) on Beryl, the default TLS stack: `ssl-cert`
+  and `ssl-key` are presented when the server asks for a certificate, in every
+  `ssl-mode`, so accounts created with `REQUIRE X509`, `REQUIRE SUBJECT` or
+  `REQUIRE ISSUER` log in with no `-Duse_openssl` build. Giving only one of
+  the two raises `MySql::Connection::PacketError` naming the missing one.
+* Beryl 0.2.3 (357b10ad): client certificates (mutual TLS).
+
 ## v0.18.1 (2026-11-25, crimson-knight/crystal-mysql pr-123)
 
 * Beryl 0.2.1 (6afec738): a server certificate from a private CA whose

@@ -18,6 +18,23 @@ end
 
 SSL_OPTION_PREFERRED = Connection::SSLOptions.new(mode: :preferred)
 
+# A throwaway client certificate and key (EC P-256), made once with the
+# openssl command line tool in a temporary folder, so no private key is
+# kept in the repository. Returns {certificate path, key path}.
+private def client_certificate_files : {String, String}
+  dir = File.join(Dir.tempdir, "crystal-mysql-spec-client-#{Process.pid}")
+  cert = File.join(dir, "client.pem")
+  key = File.join(dir, "client.key")
+  unless File.exists?(cert) && File.exists?(key)
+    Dir.mkdir_p(dir)
+    status = Process.run("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
+                                     "-days", "1", "-subj", "/CN=crystal-mysql spec client", "-keyout", key, "-out", cert],
+      output: Process::Redirect::Close, error: Process::Redirect::Inherit)
+    raise "openssl could not make the spec client certificate" unless status.success?
+  end
+  {cert, key}
+end
+
 describe Connection::Options do
   describe ".from_uri" do
     it "parses mysql://user@host/db" do
@@ -214,11 +231,52 @@ describe Connection::SSLOptions do
         context.certificate_verifier.should be_a(MySql::TLS::ChainOnlyVerifier)
       end
 
-      it "refuses client certificates, which Beryl TLS does not send" do
-        expect_raises(Connection::PacketError, /-Duse_openssl/) do
-          ssl_from_params("ssl-mode=required&ssl-cert=client.pem&ssl-key=client.key").build_context
+      it "loads the client certificate and key in every ssl-mode" do
+        ca = File.join(__DIR__, "fixtures", "ca_certificate.pem")
+        cert, key = client_certificate_files
+        expected_chain = Beryl::Certificates.read_pem_chain(File.read(cert))
+        {"preferred", "required", "verify_ca", "verify_identity"}.each do |mode|
+          context = ssl_from_params("ssl-mode=#{mode}&ssl-ca=#{ca}&ssl-cert=#{cert}&ssl-key=#{key}").build_context
+          certified_key = context.certified_key?
+          certified_key.should_not be_nil, "no client certificate for ssl-mode=#{mode}"
+          if certified_key
+            certified_key.list_of_certificates.map(&.encoded).should eq(expected_chain.map(&.encoded))
+          end
+        end
+      end
+
+      it "keeps the chain-only verifier for verify_ca with a client certificate" do
+        ca = File.join(__DIR__, "fixtures", "ca_certificate.pem")
+        cert, key = client_certificate_files
+        context = ssl_from_params("ssl-mode=verify_ca&ssl-ca=#{ca}&ssl-cert=#{cert}&ssl-key=#{key}").build_context
+        context.certificate_verifier.should be_a(MySql::TLS::ChainOnlyVerifier)
+        context.certified_key?.should_not be_nil
+      end
+
+      it "presents no client certificate when neither ssl-cert nor ssl-key is given" do
+        ssl_from_params("ssl-mode=required").build_context.certified_key?.should be_nil
+      end
+
+      it "names the file when the client certificate cannot be read" do
+        _, key = client_certificate_files
+        expect_raises(Connection::PacketError, /could not load the client certificate \(ssl-cert=\/nonexistent\/client\.pem/) do
+          ssl_from_params("ssl-mode=required&ssl-cert=/nonexistent/client.pem&ssl-key=#{key}").build_context
         end
       end
     end
   {% end %}
+
+  describe "client certificate parameters" do
+    it "names ssl-key when only ssl-cert is given" do
+      expect_raises(Connection::PacketError, "ssl-cert was given without ssl-key") do
+        ssl_from_params("ssl-mode=required&ssl-cert=client.pem").build_context
+      end
+    end
+
+    it "names ssl-cert when only ssl-key is given" do
+      expect_raises(Connection::PacketError, "ssl-key was given without ssl-cert") do
+        ssl_from_params("ssl-mode=verify_ca&ssl-key=client.key").build_context
+      end
+    end
+  end
 end

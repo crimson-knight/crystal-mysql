@@ -1,16 +1,16 @@
 name: mysql
-version: 0.18.1
+version: 0.18.2
 
 dependencies:
   db:
     github: crystal-lang/crystal-db
     version: ~> 0.14.0
   # TLS 1.3 and the password hashes, in Crystal (no OpenSSL). Pinned to the
-  # commit of Beryl 0.2.1 (TLS 1.3, SSL_CERT_FILE, private CAs without an
-  # authority key identifier); shard.lock records it.
+  # commit of Beryl 0.2.3 (client certificates, mutual TLS); shard.lock
+  # records it.
   beryl:
     github: amberframework/beryl
-    commit: 6afec738aac1aeefc016b0ba826d8d9f0acc3541
+    commit: 357b10ad61fdc0d795e1e390200ce3cdad6e2bfa
 
 authors:
   - Juan Wajnerman <jwajnerman@manas.tech>
