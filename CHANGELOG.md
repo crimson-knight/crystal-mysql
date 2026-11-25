@@ -5,7 +5,7 @@
   `ssl-mode`, so accounts created with `REQUIRE X509`, `REQUIRE SUBJECT` or
   `REQUIRE ISSUER` log in with no `-Duse_openssl` build. Giving only one of
   the two raises `MySql::Connection::PacketError` naming the missing one.
-* Beryl BERYL_PIN (client certificates).
+* Beryl 0.2.3 (357b10ad): client certificates (mutual TLS).
 
 ## v0.18.1 (2026-11-25, crimson-knight/crystal-mysql pr-123)
 
