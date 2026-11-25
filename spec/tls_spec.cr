@@ -178,7 +178,7 @@ ensure
 end
 
 describe "client certificates" do
-  it "logs in a REQUIRE X509 account with its client certificate in every verifying ssl-mode" do
+  it "logs in a REQUIRE X509 account with its client certificate in ssl-mode required, verify_ca and verify_identity" do
     server = x509_server
     with_x509_users(server) do
       {"required", "verify_ca", "verify_identity"}.each do |mode|
