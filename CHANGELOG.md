@@ -1,8 +1,11 @@
 ## v0.18.1 (2026-11-25, crimson-knight/crystal-mysql pr-123)
 
-* Beryl 0.2.1 (c51f5d23): a server certificate from a private CA whose
+* Beryl 0.2.1 (6afec738): a server certificate from a private CA whose
   certificates carry no authority key identifier now verifies, as with Go and
   OpenSSL. For the Amber stack's Beryl-adoption release.
+* Without `ssl-ca`, the server is checked against the system roots; on macOS
+  that is now /etc/ssl/cert.pem joined with Beryl's pinned Mozilla roots, since
+  macOS 27.2.1's file lacks roots the keychain trusts.
 
 ## v0.17.0 (2025-09-05)
 

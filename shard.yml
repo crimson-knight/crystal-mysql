@@ -10,7 +10,7 @@ dependencies:
   # authority key identifier); shard.lock records it.
   beryl:
     github: amberframework/beryl
-    commit: c51f5d231e699647076c91c2a91a5e4f64fa861c
+    commit: 6afec738aac1aeefc016b0ba826d8d9f0acc3541
 
 authors:
   - Juan Wajnerman <jwajnerman@manas.tech>
