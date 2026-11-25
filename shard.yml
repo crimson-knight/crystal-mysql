@@ -9,7 +9,7 @@ dependencies:
   # commit that has Beryl TLS and reads SSL_CERT_FILE; shard.lock records it.
   beryl:
     github: amberframework/beryl
-    commit: 15e214b8a8b0427da5ca7182501d5652800907cc
+    commit: ed5f21e7ddc3e30750abdd4c944ee22d16b12d57
 
 authors:
   - Juan Wajnerman <jwajnerman@manas.tech>
