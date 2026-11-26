@@ -1,3 +1,14 @@
+## Unreleased (crimson-knight/crystal-mysql pr-123)
+
+* Beryl is the only TLS backend. The `-Duse_openssl` opt-out, kept for one
+  release after v0.18.0, is removed: `MySql::TLS` always runs on Beryl
+  (TLS 1.3 only, in Crystal, no OpenSSL linked), and a build that still passes
+  `-Duse_openssl` gets Beryl. A server that cannot speak TLS 1.3 gets the
+  error that names TLS 1.3 (MySQL 8.0.16 or later with `tls_version =
+  TLSv1.3`), or is reached with `ssl-mode=disabled` on a trusted network.
+* CI drops the `-Duse_openssl` spec run and checks that a `-Duse_openssl`
+  build links no OpenSSL.
+
 ## v0.18.2 (2026-11-25, crimson-knight/crystal-mysql pr-123)
 
 * Client certificates (mutual TLS) on Beryl, the default TLS stack: `ssl-cert`

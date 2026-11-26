@@ -38,12 +38,7 @@ jobs:
         run: scripts/tls_test_servers.sh "mysql:${{ matrix.mysql.version }}@sha256:${{ matrix.mysql.digest }}" "$RUNNER_TEMP/certs" >> "$GITHUB_ENV"
       - name: Run specs (Beryl TLS)
         run: crystal spec
-      - name: Run specs (-Duse_openssl)
-        run: crystal spec -Duse_openssl spec/tls_spec.cr spec/auth_spec.cr spec/connection_options_spec.cr
-        env:
-          # OpenSSL negotiates TLS 1.2 with the TLS 1.2 server, so that check is Beryl's only.
-          MYSQL_TLS12_URL: ""
-      - name: Link check (no OpenSSL by default)
+      - name: Link check (no OpenSSL, with or without -Duse_openssl)
         run: |
           printf 'require "./src/mysql"\nDB.open(ENV["URL"]) { |db| puts db.scalar("SELECT 1") }\n' > link_probe.cr
           crystal build link_probe.cr -o link_probe
@@ -51,6 +46,11 @@ jobs:
           ldd link_probe
           ! ldd link_probe | grep -E 'libssl|libcrypto'
           test "$(nm -u link_probe | grep -Ec '(SSL|EVP|OPENSSL)_' || true)" = 0
+          # -Duse_openssl was removed; a build that still passes it gets Beryl.
+          crystal build -Duse_openssl link_probe.cr -o link_probe_flagged
+          URL="mysql://root@127.0.0.1?ssl-mode=required" ./link_probe_flagged
+          ! ldd link_probe_flagged | grep -E 'libssl|libcrypto'
+          test "$(nm -u link_probe_flagged | grep -Ec '(SSL|EVP|OPENSSL)_' || true)" = 0
 
   format:
     runs-on: ubuntu-24.04
